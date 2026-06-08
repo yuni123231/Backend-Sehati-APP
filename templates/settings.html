@@ -1,0 +1,22 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<div class="setting-container">
+    <div class="setting-card">
+        <h2 class="card-title">My Account</h2>
+        
+        <form class="setting-form">
+            <div class="input-group">
+                <input type="text" value="Admin" readonly>
+            </div>
+            
+            <div class="input-group">
+                <input type="email" value="admin@gmail.com" readonly>
+            </div>
+            
+            <button type="submit" class="btn-edit-full">Edit</button>
+        </form>
+    </div>
+</div>
+
+{% endblock %}

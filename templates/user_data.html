@@ -1,0 +1,87 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<h2 class="page-title">User Data</h2>
+
+<div class="box">
+    <div class="box-header">
+        <h3>User Data Table</h3>
+        <div class="search-box">
+            <span class="search-icon">🔍</span>
+            <input type="text" placeholder="Search user...">
+        </div>
+    </div>
+
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Age</th>
+                    <th>Gender</th>
+                    <th>Height</th>
+                    <th>Weight</th>
+                    <th>Activity</th>
+                    <th>Goals</th>
+                    <th>Calories (kcal/day)</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if users|length == 0 %}
+                <tr>
+                    <td colspan="8">No user data available</td>
+                </tr>
+                {% else %}
+                {% for user in users %}
+                <tr>
+                    <td>{{ user.nama }}</td>
+                    <td>{{ user.umur }}</td>
+                    <td>{{ user.jenis_kelamin }}</td>
+                    <td>{{ user.tinggi_badan }}</td>
+                    <td>{{ user.berat_badan }}</td>
+                    <td>{{ user.aktivitas }}</td>
+                    <td>{{ user.tujuan }}</td>
+                    <td>{{ user.kebutuhan_kalori if user.kebutuhan_kalori else "-" }}</td>
+                    <td>
+                        <button class="btn btn-edit">Edit</button>
+                        <button class="btn btn-delete" data-id="{{ user.user_id }}">Delete</button>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+  // DELETE USER AJAX
+  const deleteButtons = document.querySelectorAll(".btn-delete");
+
+  deleteButtons.forEach(btn => {
+    btn.addEventListener("click", () => {
+      const userId = btn.getAttribute("data-id");
+      if(confirm("Apakah kamu yakin ingin menghapus user ini?")){
+        fetch(`/delete_user/${userId}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          }
+        })
+        .then(res => res.json())
+        .then(data => {
+          if(data.success){
+            alert(data.message);
+            location.reload();
+          } else {
+            alert("Gagal menghapus user: " + data.message);
+          }
+        })
+        .catch(err => alert("Terjadi error: " + err));
+      }
+    });
+  });
+</script>
+
+{% endblock %}

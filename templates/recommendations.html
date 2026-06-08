@@ -1,0 +1,169 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<h2 class="page-title">Recommendations</h2>
+
+<div class="box">
+
+    <div class="box-header">
+        <h3>Recommendations Table</h3>
+        <button class="btn btn-add" onclick="openModal()">+ Add Recommendation</button>
+    </div>
+
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Category</th>
+                    <th>Name</th>
+                    <th>Calories</th>
+                    <th>Unit</th>
+                    <th>Source</th>
+                    <th>Calorie Level</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in recommendations %}
+                <tr>
+                    <td>{{ item.id }}</td>
+                    <td>{{ item.jenis }}</td>
+                    <td>{{ item.nama }}</td>
+                    <td>{{ item.kalori }}</td>
+                    <td>{{ item.satuan }}</td>
+                    <td>{{ item.sumber }}</td>
+                    <td>{{ item.kategori_kalori }}</td>
+                    <td>
+                        <form method="POST" action="/delete-recommendation/{{ item.id }}" style="display:inline;">
+                            <button class="btn btn-delete">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- MODAL -->
+<div id="addModal" class="modal-overlay">
+    <div class="modal-card">
+        <h3>Add Recommendation</h3>
+
+        <form method="POST">
+
+            <div class="form-group">
+                <label>Category</label>
+                <select name="jenis" required>
+                    <option value="Food">Food</option>
+                    <option value="Activity">Activity</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" name="nama" required>
+            </div>
+
+            <div class="form-group">
+                <label>Description</label>
+                <textarea name="deskripsi"></textarea>
+            </div>
+
+            <div class="form-group">
+                <label>Calories</label>
+                <input type="number" name="target_kalori" required>
+            </div>
+
+            <div class="form-group">
+                <label>Unit</label>
+                <input type="text" name="satuan" placeholder="per 100g / per portion">
+            </div>
+
+            <div class="form-group">
+                <label>Source</label>
+                <input type="text" name="sumber">
+            </div>
+
+            <div class="form-group">
+                <label>Calorie Level</label>
+                <select name="kategori_kalori">
+                    <option value="Low">Low</option>
+                    <option value="Medium">Medium</option>
+                    <option value="High">High</option>
+                </select>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" class="btn btn-delete" onclick="closeModal()">Cancel</button>
+                <button type="submit" class="btn btn-add">Save</button>
+            </div>
+
+        </form>
+    </div>
+</div>
+
+<style>
+.modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    justify-content: center;
+    align-items: center;
+}
+
+.modal-card {
+    background: white;
+    width: 420px;
+    padding: 25px;
+    border-radius: 12px;
+}
+
+.form-group {
+    margin-bottom: 12px;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+    width: 100%;
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid #ddd;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.btn-add {
+    background: #4CAF50;
+    color: white;
+    padding: 6px 12px;
+    border: none;
+    border-radius: 6px;
+}
+
+.btn-delete {
+    background: #f44336;
+    color: white;
+    padding: 6px 12px;
+    border: none;
+    border-radius: 6px;
+}
+</style>
+
+<script>
+function openModal(){
+    document.getElementById("addModal").style.display = "flex";
+}
+function closeModal(){
+    document.getElementById("addModal").style.display = "none";
+}
+</script>
+
+{% endblock %}
