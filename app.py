@@ -1499,6 +1499,8 @@ def get_today(user_id):
             "message": str(e)
         }), 500
     
+
+    
 @app.route('/api/history/<int:user_id>', methods=['GET'])
 def get_history(user_id):
     try:
