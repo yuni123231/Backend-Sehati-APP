@@ -246,7 +246,7 @@ def api_signup():
 
     cur.close()
 
-    verify_link = f"http://192.168.18.8:5000/api/verify-email/{token}"
+    verify_link = f"http://192.168.110.2:5000/api/verify-email/{token}"
 
     try:
         print("Kirim email ke:", email)
@@ -512,7 +512,7 @@ def forgot_password():
         {otp}
 
 
-        Kode berlaku 10 menit.
+        Kode berlaku 5 menit.
 
 
         Tim Sehati
@@ -1797,6 +1797,20 @@ def get_history(user_id):
             tidur = max(0, min(10, tidur))
             stres = max(0, min(10, stres))
 
+            print("===== SCORE PARAMETER =====")
+            print("Aktivitas Raw :", aktivitas_raw)
+            print("Aktivitas Normal :", round(aktivitas, 2))
+
+            print("Diet Raw :", diet_raw)
+            print("Diet Normal :", round(diet, 2))
+
+            print("Tidur Raw :", tidur_raw)
+            print("Tidur Normal :", round(tidur, 2))
+
+            print("Stress Raw :", stres_raw)
+            print("Stress Normal :", round(stres, 2))
+            print("===========================")
+
             total = round(
                 (diet * 0.25) +
                 (aktivitas * 0.143) +
@@ -1804,6 +1818,13 @@ def get_history(user_id):
                 (stres * 0.357),
                 1
             )
+            print("===== PERHITUNGAN SAW =====")
+            print("Diet :", round(diet * 0.25, 2))
+            print("Aktivitas :", round(aktivitas * 0.143, 2))
+            print("Tidur :", round(tidur * 0.25, 2))
+            print("Stress :", round(stres * 0.357, 2))
+            print("Total Score :", total)
+            print("===========================")
             status, conclusion = get_health_status(total)
 
             # ================= DEBUG =================
@@ -1823,7 +1844,7 @@ def get_history(user_id):
 
             # Aktivitas
             aktivitas_persen = aktivitas_raw / 12
-            if aktivitas_persen < 0.75:
+            if aktivitas_persen < 0.5:
                 rekomendasi.append({
                     "nilai": aktivitas_persen,
                     "pesan":
@@ -1832,7 +1853,7 @@ def get_history(user_id):
 
             # Diet
             diet_persen = diet_raw / 21
-            if diet_persen < 0.75:
+            if diet_persen < 0.5:
                 rekomendasi.append({
                     "nilai": diet_persen,
                     "pesan":
@@ -1841,8 +1862,8 @@ def get_history(user_id):
 
             # Tidur
             tidur_baik = 21 - tidur_raw
-            tidur_persen = tidur_baik / 14
-            if tidur_persen < 0.75:
+            tidur_persen = tidur_baik / 21
+            if tidur_persen < 0.5:
                 rekomendasi.append({
                     "nilai": tidur_persen,
                     "pesan":
@@ -1852,18 +1873,24 @@ def get_history(user_id):
             # Stress
             stress_baik = 40 - stres_raw
             stress_persen = stress_baik / 40
-            if stress_persen < 0.75:
+            if stress_persen < 0.5:
                 rekomendasi.append({
                     "nilai": stress_persen,
                     "pesan":
                     "Kelola stres dengan relaksasi, aktivitas positif, dan istirahat cukup."
                 })
 
+            print("===== SCORE REKOMENDASI =====")
+            print("Aktivitas :", round(aktivitas_raw / 12, 2))
+            print("Diet :", round(diet_raw / 21, 2))
+            print("Tidur :", round((21 - tidur_raw) / 21, 2))
+            print("Stress :", round((40 - stres_raw) / 40, 2))
+            print("=============================")
+
             if rekomendasi:
-                rekomendasi.sort(
-                    key=lambda x:x["nilai"]
+                recommendation_text = "\n".join(
+                    [item["pesan"] for item in rekomendasi]
                 )
-                recommendation_text = rekomendasi[0]["pesan"]
             else:
                 recommendation_text = (
                     "Semua aspek gaya hidup sudah baik. Pertahankan kebiasaan sehatmu."
