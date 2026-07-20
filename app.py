@@ -5,7 +5,6 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from flask_cors import CORS
 from flask import jsonify
 from datetime import datetime, timedelta
-# import tensorflow as tf
 import numpy as np
 from decimal import Decimal
 from PIL import Image
