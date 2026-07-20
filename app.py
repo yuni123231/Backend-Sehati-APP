@@ -4,89 +4,34 @@ from functools import wraps
 from werkzeug.security import check_password_hash, generate_password_hash
 from flask_cors import CORS
 from flask import jsonify
-from datetime import datetime
-import tensorflow as tf
+from datetime import datetime, timedelta
+# import tensorflow as tf
 import numpy as np
 from decimal import Decimal
 from PIL import Image
+import jwt
+from config import JWT_SECRET
 import io
+import re
+import secrets
+from flask_mail import Mail, Message
+from config import (
+    SECRET_KEY,
+    MAIL_SERVER,
+    MAIL_PORT,
+    MAIL_USE_TLS,
+    MAIL_USERNAME,
+    MAIL_PASSWORD,
+    MAIL_DEFAULT_SENDER
+)
+from google.oauth2 import id_token
+from google.auth.transport import requests
 import json
 import MySQLdb.cursors
 
 app = Flask(__name__)
 app.secret_key = 'secret-key-aman-123'
 CORS(app)
-
-# ==============================
-# CONFIG
-# ==============================
-# MODEL_PATH = "model/food_classifier_finetune.keras"
-# LABEL_PATH = "model/labels.json"
-
-# ==============================
-# LOAD MODEL
-# ==============================
-# print("Loading model...")
-# model = tf.keras.models.load_model(MODEL_PATH)
-# print("Model loaded successfully!")
-
-# ==============================
-# LOAD LABELS (WAJIB SESUAI TRAINING)
-# ==============================
-# with open(LABEL_PATH, "r") as f:
-#     CLASS_NAMES = json.load(f)
-
-# print("Labels loaded:", CLASS_NAMES)
-
-# ==============================
-# KALORI PER 100 GRAM
-# ==============================
-# FOOD_CALORIES = {
-#     "hamburger": 297,
-#     "pizza": 266,
-#     "donuts": 421,
-#     "pancakes": 227,
-#     "waffles": 291,
-#     "macaroni_and_cheese": 164,
-#     "chocolate_cake": 371,
-#     "cheesecake": 321,
-#     "french_fries": 312,
-#     "chicken_wings": 254,
-#     "ramen": 440,
-#     "ice_cream": 207,
-#     "omelette": 154,
-#     "spaghetti_bolognese": 121,
-#     "steak": 143,
-#     "hot_dog": 310,
-#     "fried_rice": 174,
-#     "sushi": 143,
-#     "caesar_salad": 150,
-#     "takoyaki": 210,
-#     "gado_gado": 137,
-#     "rendang": 193,
-#     "soto": 312,
-#     "sate_ayam": 225,
-#     "bakso": 202
-# }
-
-# ==============================
-# PREPROCESS FUNCTION
-# ==============================
-# def preprocess_image(image):
-#     image = image.resize((224, 224))
-#     image = np.array(image, dtype=np.float32) / 255.0
-#     image = np.expand_dims(image, axis=0)
-#     return image
-
-# ==============================
-# HEALTH CHECK
-# ==============================
-# @app.route("/")
-# def home():
-#     return jsonify({
-#         "status": "Backend Running",
-#         "model_output_shape": model.output_shape
-#     })
 
 # ================= DATABASE CONFIG =================
 app.config['MYSQL_HOST'] = 'localhost'
@@ -95,6 +40,17 @@ app.config['MYSQL_PASSWORD'] = ''
 app.config['MYSQL_DB'] = 'food_recommendation_db'
 
 mysql = MySQL(app)
+
+# EMAIL
+app.config['MAIL_SERVER'] = MAIL_SERVER
+app.config['MAIL_PORT'] = MAIL_PORT
+app.config['MAIL_USE_TLS'] = MAIL_USE_TLS
+
+app.config['MAIL_USERNAME'] = MAIL_USERNAME
+app.config['MAIL_PASSWORD'] = MAIL_PASSWORD
+app.config['MAIL_DEFAULT_SENDER'] = MAIL_DEFAULT_SENDER
+
+mail = Mail(app)
 
 def login_required(f):
     @wraps(f)
@@ -164,6 +120,20 @@ def users():
             "tujuan": row[8],
             "kebutuhan_kalori": row[9],
         })
+    
+    print("================")
+    print("Tanggal :", row[0])
+    print("Aktivitas :", row[1])
+    print("Aktivitas kategori :", row[2])
+
+    print("Diet :", row[4])
+    print("Diet kategori :", row[5])
+
+    print("Tidur :", row[6])
+    print("Tidur kategori :", row[7])
+
+    print("Stress :", row[8])
+    print("Stress kategori :", row[9])
 
     return render_template("user_data.html", users=users)
 
@@ -183,163 +153,449 @@ def delete_user(user_id):
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
-# @app.route("/food-log")
-# @login_required
-# def dashboard_food_log():
-#     cur = mysql.connection.cursor()
-#     cur.execute("""
-#         SELECT fd.created_at, u.nama, fd.food_name, fd.total_calories, fd.detection_id
-#         FROM food_detections fd
-#         LEFT JOIN users u ON fd.user_id = u.user_id
-#         ORDER BY fd.created_at DESC
-#     """)
-#     rows = cur.fetchall()
-#     cur.close()
-
-#     food_logs = []
-#     for row in rows:
-#         food_logs.append({
-#             "date": row[0].strftime("%Y-%m-%d %H:%M:%S"),
-#             "user": row[1],
-#             "food_item": row[2],
-#             "calories": int(row[3]),
-#             "id": row[4]
-#         })
-
-#     return render_template("food_detection.html", food_logs=food_logs)
-
-# @app.route("/api/delete-detection/<int:detection_id>", methods=["POST"])
-# @login_required
-# def delete_detection(detection_id):
-#     try:
-#         cur = mysql.connection.cursor()
-#         cur.execute("DELETE FROM food_detections WHERE detection_id=%s", (detection_id,))
-#         mysql.connection.commit()
-#         cur.close()
-#         return jsonify({"success": True, "message": "Detection deleted"})
-#     except Exception as e:
-#         return jsonify({"success": False, "message": str(e)}), 500
-
-# # ===============================
-# # RECOMMENDATIONS DASHBOARD
-# # ===============================
-# @app.route("/recommendations", methods=["GET", "POST"])
-# @login_required
-# def recommendations():
-#     cur = mysql.connection.cursor()
-
-#     # ================= INSERT DATA =================
-#     if request.method == "POST":
-#         jenis = request.form.get("jenis")
-#         nama = request.form.get("nama")
-#         deskripsi = request.form.get("deskripsi")
-#         target_kalori = request.form.get("target_kalori")
-#         satuan = request.form.get("satuan")
-#         sumber = request.form.get("sumber")
-#         kategori_kalori = request.form.get("kategori_kalori")
-
-#         cur.execute("""
-#             INSERT INTO recommendations
-#             (jenis, nama, deskripsi, target_kalori, satuan, sumber, kategori_kalori)
-#             VALUES (%s, %s, %s, %s, %s, %s, %s)
-#         """, (jenis, nama, deskripsi, target_kalori, satuan, sumber, kategori_kalori))
-
-#         mysql.connection.commit()
-#         return redirect(url_for("recommendations"))
-
-#     # ================= AMBIL DATA =================
-#     cur.execute("""
-#         SELECT recommendation_id, jenis, nama, target_kalori, satuan, sumber, kategori_kalori
-#         FROM recommendations
-#         ORDER BY recommendation_id DESC
-#     """)
-#     rows = cur.fetchall()
-#     cur.close()
-
-#     recommendations = []
-#     for row in rows:
-#         recommendations.append({
-#             "id": row[0],
-#             "jenis": row[1],
-#             "nama": row[2],
-#             "kalori": row[3],
-#             "satuan": row[4],
-#             "sumber": row[5],
-#             "kategori_kalori": row[6]
-#         })
-
-#     return render_template("recommendations.html", recommendations=recommendations)
-
-# @app.route("/delete-recommendation/<int:id>", methods=["POST"])
-# @login_required
-# def delete_recommendation(id):
-#     cur = mysql.connection.cursor()
-#     cur.execute("DELETE FROM recommendations WHERE recommendation_id=%s", (id,))
-#     mysql.connection.commit()
-#     cur.close()
-#     return redirect(url_for("recommendations"))
-
 @app.route("/settings")
 def settings():
     return render_template("settings.html", title="Settings")
 
 # ================== API SIGNUP ==================
 
+def is_strong_password(password):
+    return re.match(
+        r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$',
+        password
+    )
+
 @app.route("/api/signup", methods=["POST"])
 def api_signup():
+
     data = request.get_json()
+
     if not data:
-        return jsonify({"success": False, "message": "Request tidak valid"}), 400
+        return jsonify({
+            "success": False,
+            "message": "Request tidak valid"
+        }), 400
 
     nama = data.get("name")
     email = data.get("email")
     password = data.get("password")
 
     if not nama or not email or not password:
-        return jsonify({"success": False, "message": "Nama, email, dan password wajib diisi"}), 400
+        return jsonify({
+            "success": False,
+            "message": "Semua field wajib diisi"
+        }), 400
+
+    if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
+        return jsonify({
+            "success":False,
+            "message":"Format email tidak valid"
+        }),400
+
+    if not is_strong_password(password):
+        return jsonify({
+            "success": False,
+            "message": "Password minimal 8 karakter dan harus mengandung huruf besar, huruf kecil, angka dan simbol"
+        }), 400
 
     cur = mysql.connection.cursor()
-    cur.execute("SELECT user_id FROM users WHERE email=%s", (email,))
+
+    cur.execute(
+        "SELECT user_id FROM users WHERE email=%s",
+        (email,)
+    )
+
     if cur.fetchone():
         cur.close()
-        return jsonify({"success": False, "message": "Email sudah terdaftar"}), 409
+
+        return jsonify({
+            "success": False,
+            "message": "Email sudah digunakan"
+        }), 409
 
     hashed_password = generate_password_hash(password)
+
+    token = secrets.token_urlsafe(32)
+
     created_at = datetime.now()
+
     cur.execute("""
-        INSERT INTO users (nama, email, password, created_at)
-        VALUES (%s, %s, %s, %s)
-    """, (nama, email, hashed_password, created_at))
+        INSERT INTO users(
+            nama,
+            email,
+            password,
+            provider,
+            email_verified,
+            verification_token,
+            created_at
+        )
+        VALUES(%s,%s,%s,%s,%s,%s,%s)
+    """,(
+        nama,
+        email,
+        hashed_password,
+        "local",
+        False,
+        token,
+        created_at
+    ))
+
     mysql.connection.commit()
+
     user_id = cur.lastrowid
+
     cur.close()
 
-    return jsonify({"success": True, "message": "Registrasi berhasil", "user_id": user_id}), 201
+    verify_link = f"http://192.168.18.8:5000/api/verify-email/{token}"
+
+    try:
+        print("Kirim email ke:", email)
+
+        msg = Message(
+            subject="Verifikasi Akun Sehati",
+            sender=app.config['MAIL_DEFAULT_SENDER'],
+            recipients=[email]
+        )
+
+        msg.body = f"""
+        Halo {nama},
+
+        Terima kasih sudah mendaftar di aplikasi Sehati.
+
+        Untuk mengaktifkan akun Anda, silakan klik tombol berikut:
+
+        {verify_link}
+
+        Link ini digunakan untuk verifikasi akun Anda.
+
+        Jika Anda tidak melakukan pendaftaran, abaikan email ini.
+
+        Salam,
+        Tim Sehati
+        """
+        mail.send(msg)
+
+        print("EMAIL BERHASIL TERKIRIM")
+
+    except Exception as e:
+        print("EMAIL ERROR:", e)
+
+    return jsonify({
+        "success": True,
+        "user_id": user_id,
+        "message": "Silakan cek email untuk verifikasi akun"
+    }), 201
+
+# ================= VERIFIKASI EMAIL ================= 
+@app.route("/api/verify-email/<token>")
+def verify_email(token):
+
+    cur = mysql.connection.cursor()
+
+    cur.execute("""
+        SELECT user_id
+        FROM users
+        WHERE verification_token=%s
+    """, (token,))
+
+    user = cur.fetchone()
+
+    if not user:
+        cur.close()
+        return "Token tidak valid"
+
+    cur.execute("""
+        UPDATE users
+        SET
+            email_verified=TRUE,
+            verification_token=NULL
+        WHERE user_id=%s
+    """, (user[0],))
+
+    mysql.connection.commit()
+
+    cur.close()
+
+    return """
+    <h2>Email berhasil diverifikasi</h2>
+    <p>Silakan kembali ke aplikasi dan login.</p>
+    """
 
 # ================= API SIGNIN =================
 @app.route("/api/signin", methods=["POST"])
 def api_signin():
+
     data = request.get_json()
 
     if not data:
-        return jsonify({"success": False, "message": "Request tidak valid"}), 400
+        return jsonify({
+            "success": False,
+            "message": "Request tidak valid"
+        }), 400
 
     email = data.get("email")
     password = data.get("password")
 
+
+    if not email or not password:
+        return jsonify({
+            "success":False,
+            "message":"Email dan password wajib diisi"
+        }),400
+    
     cur = mysql.connection.cursor()
-    cur.execute("SELECT user_id, nama, password FROM users WHERE email=%s", (email,))
+
+    cur.execute("""
+        SELECT
+            user_id,
+            nama,
+            password,
+            email_verified
+        FROM users
+        WHERE email=%s
+    """,(email,))
+
     user = cur.fetchone()
+
     cur.close()
 
-    if not user or not check_password_hash(user[2], password):
-        return jsonify({"success": False, "message": "Email atau password salah"}), 401
+    # cek email ada atau tidak
+    if not user:
+        return jsonify({
+            "success": False,
+            "message": "Email tidak ditemukan"
+        }),404
+
+    # cek password
+    if not check_password_hash(user[2], password):
+
+        return jsonify({
+            "success": False,
+            "message": "Password salah"
+        }),401
+
+    # cek email sudah diverifikasi atau belum
+    if not user[3]:
+
+        return jsonify({
+            "success": False,
+            "message": "Silakan verifikasi email terlebih dahulu"
+        }),403
 
     return jsonify({
+
         "success": True,
         "user_id": user[0],
         "nama": user[1]
-    }), 200
+
+    }),200
+
+# ================= SIGN IN GOOGLE =================
+
+@app.route('/api/signin-google', methods=['POST'])
+def signin_google():
+
+    data = request.get_json()
+
+    if not data:
+        return jsonify({
+            "success":False,
+            "message":"Request tidak valid"
+        }),400
+
+    email = data.get("email")
+
+    if not email:
+        return jsonify({
+            "success":False,
+            "message":"Email wajib ada"
+        }),400
+
+    cur = mysql.connection.cursor()
+
+    cur.execute("""
+        SELECT
+            user_id,
+            nama,
+            email_verified
+        FROM users
+        WHERE email=%s
+    """,(email,))
+    user = cur.fetchone()
+    cur.close()
+
+    # email tidak ada
+    if not user:
+        return jsonify({
+            "success":False,
+            "message":"Email belum terdaftar"
+        }),404
+
+    # email belum diverifikasi
+    if not user[2]:
+        return jsonify({
+            "success":False,
+            "message":
+            "Silakan verifikasi email terlebih dahulu"
+        }),403
+
+    return jsonify({
+        "success":True,
+        "user_id":user[0],
+        "nama":user[1]
+    }),200
+
+# ================= FORGOT PASSWORD =================
+
+@app.route("/api/forgot-password", methods=["POST"])
+def forgot_password():
+    data = request.get_json()
+    email = data.get("email")
+    if not email:
+        return jsonify({
+            "success":False,
+            "message":"Email wajib diisi"
+        }),400
+    cur = mysql.connection.cursor()
+    cur.execute(
+        """
+        SELECT user_id,nama
+        FROM users
+        WHERE email=%s
+        """,
+        (email,)
+    )
+    user = cur.fetchone()
+    if not user:
+        cur.close()
+        return jsonify({
+            "success":False,
+            "message":"Email tidak ditemukan"
+        }),404
+    # buat OTP 6 digit
+    otp = str(
+        secrets.randbelow(900000)+100000
+    )
+    expired = datetime.now() + timedelta(
+        minutes=10
+    )
+    # simpan OTP ke users
+    cur.execute(
+        """
+        UPDATE users
+        SET 
+        otp_code=%s,
+        otp_expired=%s
+        WHERE user_id=%s
+        """,
+        (otp, expired, user[0])
+    )
+    mysql.connection.commit()
+    cur.close()
+    try:
+        msg = Message(
+            subject=
+            "Reset Password Sehati",
+            sender=
+            app.config['MAIL_DEFAULT_SENDER'],
+            recipients=[
+                email
+            ]
+        )
+        msg.body=f"""
+        Halo {user[1]}
+
+
+        Kode OTP reset password kamu:
+
+
+        {otp}
+
+
+        Kode berlaku 10 menit.
+
+
+        Tim Sehati
+
+        """
+        mail.send(msg)
+    except Exception as e:
+        print(
+            "EMAIL ERROR:",
+            e
+        )
+    return jsonify({
+        "success":True,
+        "message":
+        "OTP berhasil dikirim"
+    })
+
+# ================= RESET PASSWORD =================
+@app.route("/api/reset-password", methods=["POST"])
+def reset_password():
+    data=request.get_json()
+    email=data.get("email")
+    otp=data.get("otp")
+    password=data.get("password")
+    if not email or not otp or not password:
+        return jsonify({
+            "success":False,
+            "message":"Data belum lengkap"
+        }),400
+    cur=mysql.connection.cursor()
+    cur.execute(
+        """
+        SELECT 
+        user_id,
+        otp_expired
+        FROM users
+        WHERE email=%s
+        AND otp_code=%s
+        """,
+        (
+        email,
+        otp
+        )
+    )
+    user=cur.fetchone()
+    if not user:
+        cur.close()
+        return jsonify({
+            "success":False,
+            "message":
+            "OTP salah"
+        })
+    if datetime.now() > user[1]:
+        cur.close()
+        return jsonify({
+            "success":False,
+            "message":
+            "OTP sudah kadaluarsa"
+        })
+    password_hash = generate_password_hash(
+        password
+    )
+    cur.execute(
+        """
+        UPDATE users
+        SET
+        password=%s,
+        otp_code=NULL,
+        otp_expired=NULL
+        WHERE user_id=%s
+        """,
+        (
+        password_hash,
+        user[0]
+        )
+    )
+    mysql.connection.commit()
+    cur.close()
+    return jsonify({
+        "success":True,
+        "message":
+        "Password berhasil diperbarui"
+    })
 
 # ================== API USER PROFILE ==================
 @app.route("/api/user_profile", methods=["POST"])
@@ -566,22 +822,6 @@ def api_get_user_profile(user_id):
         }
     }), 200
 
-    # profile = {
-    #     "nama": row[0],
-    #     "email": row[1],  # <-- tambahkan ini
-    #     "umur": row[2],
-    #     "berat_badan": row[3],
-    #     "tinggi_badan": row[4],
-    #     "jenis_kelamin": row[5],
-    #     "aktivitas": row[6],
-    #     "tujuan": row[7],
-    #     # "kebutuhan_kalori": row[8] if row[8] is not None else 0
-    #     "kebutuhan_kalori": int(row[8]) if row[8] else 0
-
-    # }
-    
-    # return jsonify({"success": True, "data" : profile}), 200
-
 # ================== API UPDATE USER ACCOUNT ==================
 @app.route("/api/user_account/<int:user_id>", methods=["PUT"])
 def api_update_user_account(user_id):
@@ -636,251 +876,20 @@ def api_logout():
         "message": "Logout berhasil"
     }), 200
 
-# ==============================
-# FOOD DETECTION API
-# ==============================
-# @app.route("/api/food-detection", methods=["POST"])
-# def api_food_detection():
-
-#     if "image" not in request.files:
-#         return jsonify({
-#             "success": False,
-#             "message": "Image file not found"
-#         }), 400
-
-#     try:
-#         file = request.files["image"]
-
-#         # ===== READ IMAGE =====
-#         image = Image.open(io.BytesIO(file.read())).convert("RGB")
-
-#         # ===== PREPROCESS =====
-#         img_array = preprocess_image(image)
-
-#         # ===== PREDICT =====
-#         predictions = model.predict(img_array)
-#         predicted_index = int(np.argmax(predictions))
-#         confidence = float(np.max(predictions))
-
-#         predicted_label = CLASS_NAMES[predicted_index]
-
-#         # ===== CONFIDENCE THRESHOLD =====
-#         if confidence < 0.6:
-#             predicted_label = "Tidak yakin"
-
-#         calories = FOOD_CALORIES.get(predicted_label, 0)
-
-#         return jsonify({
-#             "success": True,
-#             "food_name": predicted_label,
-#             "confidence_percent": round(confidence * 100, 2),
-#             "calories_per_100g": calories
-#         }), 200
-
-#     except Exception as e:
-#         return jsonify({
-#             "success": False,
-#             "error": str(e)
-#         }), 500
-
-# # ==============================
-# # SAVE DETECTION TO DATABASE
-# # ==============================
-# @app.route("/api/save-detection", methods=["POST"])
-# def api_save_detection():
-#     data = request.get_json()
-#     try:
-#         user_id = data.get("user_id")
-#         food_name = data.get("food_name") or "Unknown"
-#         calories_per_100g = float(data.get("calories_per_100g", 0))
-#         weight_gram = float(data.get("weight_gram", 0))
-#         total_calories = float(data.get("total_calories", 0))
-#         confidence = float(data.get("confidence", 0))
-#         image_path = data.get("image_path") or ""
-
-#         if not user_id:
-#             return jsonify({"success": False, "message": "User ID wajib diisi"}), 400
-
-#         cur = mysql.connection.cursor()
-#         # ================= CEK USER =================
-#         cur.execute("SELECT user_id FROM users WHERE user_id=%s", (user_id,))
-#         if not cur.fetchone():
-#             cur.close()
-#             return jsonify({"success": False, "message": "User tidak ditemukan"}), 400
-
-#         # ================= INSERT DETECTION =================
-#         cur.execute("""
-#             INSERT INTO food_detections
-#             (user_id, food_name, calories_per_100g, weight_gram, total_calories, confidence, image_path, created_at)
-#             VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
-#         """, (user_id, food_name, calories_per_100g, weight_gram, total_calories, confidence, image_path))
-
-#         mysql.connection.commit()
-#         cur.close()
-#         return jsonify({"success": True, "message": "Hasil deteksi berhasil disimpan"}), 201
-#     except Exception as e:
-#         print("ERROR SAVE DETECTION:", e)
-#         return jsonify({"success": False, "message": str(e)}), 500
-
-# # ============================== 
-# # GET TODAY'S DETECTIONS
-# # ==============================
-# @app.route("/api/todays-detections/<int:user_id>", methods=["GET"])
-# def api_todays_detections(user_id):
-#     try:
-#         cur = mysql.connection.cursor()
-        
-#         # Ambil semua deteksi hari ini untuk user_id
-#         cur.execute("""
-#             SELECT food_name, total_calories, created_at
-#             FROM food_detections
-#             WHERE user_id = %s
-#               AND DATE(created_at) = CURDATE()
-#             ORDER BY created_at DESC
-#         """, (user_id,))
-        
-#         rows = cur.fetchall()
-#         cur.close()
-        
-#         detections = []
-#         for row in rows:
-#             detections.append({
-#                 "food_name": row[0],
-#                 "total_calories": int(row[1]),
-#                 "time": row[2].strftime("%H:%M:%S")  # optional: tampil jam deteksi
-#             })
-        
-#         return jsonify({
-#             "success": True,
-#             "data": detections
-#         }), 200
-    
-#     except Exception as e:
-#         print("ERROR GET TODAYS DETECTIONS:", e)
-#         return jsonify({
-#             "success": False,
-#             "message": str(e)
-#         }), 500
-
-# # ==============================
-# # GET RECOMMENDATIONS FOR USER
-# # ==============================
-# @app.route("/api/recommendations/<int:user_id>", methods=["GET"])
-# def get_recommendations(user_id):
-#     try:
-#         cur = mysql.connection.cursor()
-
-#         # ================= GET KEBUTUHAN KALORI =================
-#         cur.execute("SELECT kebutuhan_kalori FROM user_profiles WHERE user_id=%s", (user_id,))
-#         profile = cur.fetchone()
-#         if not profile:
-#             return jsonify({"success": False, "message": "Profil tidak ditemukan"}), 404
-
-#         kebutuhan_kalori = float(profile[0])  # pastikan float
-
-#         # ================= GET TOTAL KALORI HARI INI =================
-#         cur.execute("""
-#             SELECT COALESCE(SUM(total_calories),0)
-#             FROM food_detections
-#             WHERE user_id=%s AND DATE(created_at)=CURDATE()
-#         """, (user_id,))
-#         total_today = cur.fetchone()[0] or 0
-
-#         # konversi decimal -> float
-#         if isinstance(total_today, Decimal):
-#             total_today = float(total_today)
-
-#         sisa_kalori = kebutuhan_kalori - total_today
-
-#         # ================= FILTER REKOMENDASI =================
-#         if sisa_kalori > 0:
-#             # Jika masih ada kalori tersisa → tampilkan makanan <= sisa kalori
-#             cur.execute("""
-#                 SELECT nama AS description,
-#                        target_kalori AS kalori,
-#                        kategori_kalori AS kategori
-#                 FROM recommendations
-#                 WHERE jenis='Food' 
-#                   AND target_kalori IS NOT NULL 
-#                   AND target_kalori <= %s
-#                 ORDER BY target_kalori DESC
-#                 LIMIT 50
-#             """, (sisa_kalori,))
-#         else:
-#             # Jika kelebihan kalori → tampilkan aktivitas untuk membakar kalori
-#             cur.execute("""
-#                 SELECT nama AS description,
-#                        target_kalori AS kalori,
-#                        kategori_kalori AS kategori
-#                 FROM recommendations
-#                 WHERE jenis='Activity' 
-#                   AND target_kalori IS NOT NULL 
-#                   AND target_kalori >= %s
-#                 ORDER BY target_kalori ASC
-#                 LIMIT 50
-#             """, (abs(sisa_kalori),))
-
-#         rows = cur.fetchall()
-#         cur.close()
-
-#         results = []
-#         for row in rows:
-#             results.append({
-#                 "description": row[0],
-#                 "kalori": float(row[1]) if row[1] is not None else 0,
-#                 "kategori": row[2] or "-"
-#             })
-
-#         return jsonify({
-#             "success": True,
-#             "sisa_kalori": round(sisa_kalori, 2),
-#             "data": results
-#         }), 200
-
-#     except Exception as e:
-#         print("ERROR /api/recommendations:", e)
-#         return jsonify({"success": False, "message": str(e)}), 500
-
 ############ PARAMETER GAYA HISUP SEHAT ############
-
 @app.route('/api/save-activity', methods=['POST'])
 def save_activity():
     try:
         data = request.get_json()
 
-        print("DATA MASUK:", data)
-
-        # ================= AMBIL DATA =================
-
         user_id = int(data.get('user_id', 0))
+        durasi_aktivitas = int(data.get('durasi_aktivitas', 0))
+        intensitas_aktivitas = int(data.get('intensitas_aktivitas', 0))
+        sedentary = int(data.get('sedentary', 0))
 
-        durasi_aktivitas = int(
-            data.get('durasi_aktivitas', 0)
-        )
-
-        frekuensi_olahraga = int(
-            data.get('frekuensi_olahraga', 0)
-        )
-
-        intensitas_aktivitas = int(
-            data.get('intensitas_aktivitas', 0)
-        )
-
-        aktivitas_harian = int(
-            data.get('aktivitas_harian', 0)
-        )
-
-        sedentary = int(
-            data.get('sedentary', 0)
-        )
-
-        skor_total = int(
-            data.get('skor_total', 0)
-        )
-
-        kategori = data.get('kategori', '')
-
-        # ================= VALIDASI =================
+        print("DURASI :", durasi_aktivitas)
+        print("INTENSITAS :", intensitas_aktivitas)
+        print("SEDENTARY :", sedentary)
 
         if user_id == 0:
             return jsonify({
@@ -888,54 +897,106 @@ def save_activity():
                 "message": "User tidak valid"
             }), 400
 
-        # ================= SAVE DATABASE =================
-
         cur = mysql.connection.cursor()
 
-        query = """
+        # ================= 1. SIMPAN DATA HARI INI =================
+        insert_query = """
         INSERT INTO user_activities (
             user_id,
             durasi_aktivitas,
-            frekuensi_olahraga,
             intensitas_aktivitas,
-            aktivitas_harian,
             sedentary,
-            skor_total,
-            kategori
+            created_at
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s,%s,%s,%s,NOW())
         """
 
-        values = (
+        cur.execute(insert_query, (
             user_id,
             durasi_aktivitas,
-            frekuensi_olahraga,
             intensitas_aktivitas,
-            aktivitas_harian,
-            sedentary,
-            skor_total,
-            kategori
+            sedentary
+        ))
+
+        mysql.connection.commit()
+
+        # ================= 2. HITUNG FREKUENSI WHO (7 HARI) =================
+        cur.execute("""
+            SELECT COUNT(DISTINCT DATE(created_at))
+            FROM user_activities
+            WHERE user_id = %s
+            AND created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+        """, (user_id,))
+
+        frekuensi_mingguan = cur.fetchone()[0]
+
+        print("===================")
+        print("USER :", user_id)
+        print("FREKUENSI :", frekuensi_mingguan)
+        print("===================")
+
+        # ================= 3. SKOR FREKUENSI =================
+        if frekuensi_mingguan >= 5:
+            skor_frekuensi = 3
+        elif frekuensi_mingguan >= 3:
+            skor_frekuensi = 2
+        else:
+            skor_frekuensi = 1
+
+        # ================= 4. SKOR LAIN =================
+        skor_durasi = durasi_aktivitas
+        skor_intensitas = intensitas_aktivitas
+        skor_sedentary = sedentary
+
+        skor_total = (
+            skor_durasi +
+            skor_intensitas +
+            skor_sedentary +
+            skor_frekuensi
         )
 
-        cur.execute(query, values)
+        # ================= 5. KATEGORI =================
+        if skor_total >= 9:
+            kategori = "Aktif (Baik)"
+        elif skor_total >= 6:
+            kategori = "Cukup Aktif"
+        else:
+            kategori = "Kurang Aktif"
+
+        # ================= 6. UPDATE DATA TERAKHIR =================
+        update_query = """
+        UPDATE user_activities
+        SET
+            frekuensi_mingguan = %s,
+            skor_total = %s,
+            kategori = %s
+        WHERE id = LAST_INSERT_ID()
+        """
+
+        cur.execute(update_query, (
+            frekuensi_mingguan,
+            skor_total,
+            kategori
+        ))
 
         mysql.connection.commit()
         cur.close()
 
         return jsonify({
             "success": True,
-            "message": "Data aktivitas berhasil disimpan"
+            "message": "Data aktivitas berhasil disimpan",
+            "frekuensi_mingguan": frekuensi_mingguan,
+            "skor_total": skor_total,
+            "kategori": kategori
         }), 201
 
     except Exception as e:
         print("ERROR SAVE ACTIVITY:", str(e))
-
         return jsonify({
             "success": False,
             "message": "Gagal menyimpan data aktivitas",
             "error": str(e)
         }), 500
-
 
 @app.route('/api/get-activity/<int:user_id>', methods=['GET'])
 def get_activity(user_id):
@@ -944,17 +1005,20 @@ def get_activity(user_id):
 
         query = """
         SELECT
+
             durasi_aktivitas,
-            frekuensi_olahraga,
             intensitas_aktivitas,
-            aktivitas_harian,
             sedentary,
+            frekuensi_mingguan,
             skor_total,
             kategori,
             created_at
+
         FROM user_activities
+
         WHERE user_id = %s
         AND DATE(created_at) = CURDATE()
+
         ORDER BY created_at DESC
         LIMIT 1
         """
@@ -974,14 +1038,15 @@ def get_activity(user_id):
         return jsonify({
             "success": True,
             "data": {
+
                 "durasi_aktivitas": data[0],
-                "frekuensi_olahraga": data[1],
-                "intensitas_aktivitas": data[2],
-                "aktivitas_harian": data[3],
-                "sedentary": data[4],
-                "skor_total": data[5],
-                "kategori": data[6],
-                "created_at": str(data[7])
+                "intensitas_aktivitas": data[1],
+                "sedentary": data[2],
+                "frekuensi_mingguan": data[3],
+                "skor_total": data[4],
+                "kategori": data[5],
+                "created_at": str(data[6])
+
             }
         })
 
@@ -1263,39 +1328,46 @@ def get_stress(user_id):
 def save_sleep():
     try:
         data = request.get_json()
-        print("DATA SLEEP MASUK:", data)  # 🔥 DEBUG
+        # print("DATA SLEEP MASUK:", data)  # 🔥 DEBUG
 
         user_id = int(data.get('user_id', 0))
         durasi = int(data.get('durasi_tidur', 0))
         gangguan = int(data.get('gangguan', 0))
-        lama_terbangun = int(data.get('lama_terbangun', 0))
         kualitas = int(data.get('kualitas_tidur', 0))
-        keteraturan = int(data.get('keteraturan', 0))
+        lama_terbangun = int(data.get('lama_terbangun', 0))
+        mengantuk = int(data.get('mengantuk_siang', 0))
+        latensi = int(data.get('latensi_tidur', 0))
+        jadwal = int(data.get('jadwal_tidur', 0))
         skor_total = int(data.get('skor_total', 0))
         kategori = data.get('kategori', "")
 
         cur = mysql.connection.cursor()
 
         query = """
-        INSERT INTO user_sleeps (
+        INSERT INTO user_sleeps(
             user_id,
             durasi_tidur,
             gangguan,
-            lama_terbangun,
             kualitas_tidur,
-            keteraturan,
+            lama_terbangun,
+            mengantuk_siang,
+            latensi_tidur,
+            jadwal_tidur,
             skor_total,
             kategori
-        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+        )
+        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """
 
         values = (
             user_id,
             durasi,
             gangguan,
-            lama_terbangun,
             kualitas,
-            keteraturan,
+            lama_terbangun,
+            mengantuk,
+            latensi,
+            jadwal,
             skor_total,
             kategori
         )
@@ -1325,19 +1397,21 @@ def get_sleep(user_id):
         cur = mysql.connection.cursor()
 
         cur.execute("""
-            SELECT 
-                durasi_tidur,
-                gangguan,
-                lama_terbangun,
-                kualitas_tidur,
-                keteraturan,
-                skor_total,
-                kategori
-            FROM user_sleeps
-            WHERE user_id = %s
-            AND DATE(created_at) = CURDATE()
-            ORDER BY created_at DESC
-            LIMIT 1
+        SELECT
+            durasi_tidur,
+            gangguan,
+            kualitas_tidur,
+            lama_terbangun,
+            mengantuk_siang,
+            latensi_tidur,
+            jadwal_tidur,
+            skor_total,
+            kategori
+        FROM user_sleeps
+        WHERE user_id=%s
+        AND DATE(created_at)=CURDATE()
+        ORDER BY created_at DESC
+        LIMIT 1
         """, (user_id,))
 
         data = cur.fetchone()
@@ -1352,11 +1426,13 @@ def get_sleep(user_id):
                 "data": {
                     "durasi_tidur": data[0],
                     "gangguan": data[1],
-                    "lama_terbangun": data[2],
-                    "kualitas_tidur": data[3],
-                    "keteraturan": data[4],
-                    "skor_total": data[5],
-                    "kategori": data[6],
+                    "kualitas_tidur": data[2],
+                    "lama_terbangun": data[3],
+                    "mengantuk_siang": data[4],
+                    "latensi_tidur": data[5],
+                    "jadwal_tidur": data[6],
+                    "skor_total": data[7],
+                    "kategori": data[8]
                 }
             })
         else:
@@ -1371,7 +1447,28 @@ def get_sleep(user_id):
             "success": False,
             "message": str(e)
         }), 500
+    
+# ================= KESIMPULAN GAYA HIUP ==================
+def get_health_status(score):
 
+    if score >= 7.0:
+        return (
+            "Seimbang",
+            "Gaya hidup kamu sudah seimbang dan konsisten ✨"
+        )
+
+    elif score >= 5.5:
+        return (
+            "Cukup Seimbang",
+            "Gaya hidup kamu cukup baik, tetapi masih ada ruang untuk perbaikan 🌱"
+        )
+
+    else:
+        return (
+            "Perlu Perbaikan",
+            "Perlu perhatian lebih pada gaya hidup sehari-hari 😴"
+        )
+    
 @app.route('/api/today/<int:user_id>', methods=['GET'])
 def get_today(user_id):
     try:
@@ -1400,7 +1497,6 @@ def get_today(user_id):
                     LIMIT 1
                 ), 0
             ) AS diet,
-
             COALESCE(
                 (
                     SELECT skor_total
@@ -1435,23 +1531,25 @@ def get_today(user_id):
 
         cur.close()
 
-        cur.close()
-
         aktivitas_raw = data[0]
         diet_raw = data[1]
         tidur_raw = data[2]
         stres_raw = data[3]
 
         # ================= NORMALISASI =================
-
-        aktivitas = (aktivitas_raw / 15) * 10
+        aktivitas = (aktivitas_raw / 12) * 10
         diet = (diet_raw / 21) * 10
-        tidur = (tidur_raw / 18) * 10
+        if tidur_raw == 0:
+            tidur = 0
+        else:
+            tidur = 10 - ((tidur_raw / 21) * 10)
+
+        tidur = max(0, min(10, tidur))
 
         if stres_raw == 0:
             stres = 0
         else:
-            stres = ((40 - stres_raw) / 40) * 10
+            stres = 10 - ((stres_raw / 40) * 10)
 
         aktivitas = max(0, min(10, aktivitas))
         diet = max(0, min(10, diet))
@@ -1459,36 +1557,34 @@ def get_today(user_id):
         stres = max(0, min(10, stres))
 
         # ================= BOBOT =================
-
         score = round(
-            (diet * 0.15) +
-            (aktivitas * 0.20) +
-            (tidur * 0.30) +
-            (stres * 0.35),
+            (diet * 0.25) +
+            (aktivitas * 0.143) +
+            (tidur * 0.25) +
+            (stres * 0.357),
             1
         )
-
-        # ================= STATUS =================
-
-        if score >= 8:
-            status = "Sangat Seimbang"
-        elif score >= 6:
-            status = "Seimbang"
-        elif score >= 4:
-            status = "Kurang Seimbang"
-        else:
-            status = "Tidak Seimbang"
+        status, conclusion = get_health_status(score)
 
         return jsonify({
             "success": True,
 
-            "aktivitas": round(aktivitas, 1),
-            "diet": round(diet, 1),
-            "tidur": round(tidur, 1),
-            "stres": round(stres, 1),
+            # nilai asli untuk tampilan user
+            "aktivitas": aktivitas_raw,
+            "diet": diet_raw,
+            "tidur": tidur_raw,
+            "stres": stres_raw,
+
+
+            # nilai normalisasi SAW
+            "aktivitas_normal": round(aktivitas,1),
+            "diet_normal": round(diet,1),
+            "tidur_normal": round(tidur,1),
+            "stres_normal": round(stres,1),
 
             "score": score,
-            "status": status
+            "status": status,
+            "conclusion": conclusion
         })
 
     except Exception as e:
@@ -1498,9 +1594,7 @@ def get_today(user_id):
             "success": False,
             "message": str(e)
         }), 500
-    
-
-    
+       
 @app.route('/api/history/<int:user_id>', methods=['GET'])
 def get_history(user_id):
     try:
@@ -1512,6 +1606,7 @@ def get_history(user_id):
 
             COALESCE(a.skor_total, 0) as aktivitas,
             COALESCE(a.kategori, '-') as aktivitas_kategori,
+            COALESCE(a.frekuensi_mingguan, 0) as frekuensi_mingguan,
 
             COALESCE(d.skor_total, 0) as diet,
             COALESCE(d.kategori, '-') as diet_kategori,
@@ -1533,43 +1628,47 @@ def get_history(user_id):
         ) dates
 
         LEFT JOIN (
-            SELECT 
-                DATE(created_at) tanggal,
-                MAX(skor_total) skor_total,
-                MAX(kategori) kategori
+            SELECT DATE(created_at) as tanggal, skor_total, kategori, frekuensi_mingguan
             FROM user_activities
-            WHERE user_id = %s
-            GROUP BY DATE(created_at)
+            WHERE id IN (
+                SELECT MAX(id) 
+                FROM user_activities 
+                WHERE user_id = %s 
+                GROUP BY DATE(created_at)
+            )
         ) a ON dates.tanggal = a.tanggal
 
         LEFT JOIN (
-            SELECT 
-                DATE(created_at) tanggal,
-                MAX(skor_total) skor_total,
-                MAX(kategori) kategori
+            SELECT DATE(created_at) as tanggal, skor_total, kategori
             FROM user_dietary
-            WHERE user_id = %s
-            GROUP BY DATE(created_at)
+            WHERE id IN (
+                SELECT MAX(id) 
+                FROM user_dietary 
+                WHERE user_id = %s 
+                GROUP BY DATE(created_at)
+            )
         ) d ON dates.tanggal = d.tanggal
 
         LEFT JOIN (
-            SELECT 
-                DATE(created_at) tanggal,
-                MAX(skor_total) skor_total,
-                MAX(kategori) kategori
+            SELECT DATE(created_at) as tanggal, skor_total, kategori
             FROM user_sleeps
-            WHERE user_id = %s
-            GROUP BY DATE(created_at)
+            WHERE id IN (
+                SELECT MAX(id) 
+                FROM user_sleeps 
+                WHERE user_id = %s 
+                GROUP BY DATE(created_at)
+            )
         ) s ON dates.tanggal = s.tanggal
 
         LEFT JOIN (
-            SELECT 
-                DATE(created_at) tanggal,
-                MAX(skor_total) skor_total,
-                MAX(kategori) kategori
+            SELECT DATE(created_at) as tanggal, skor_total, kategori
             FROM user_stress
-            WHERE user_id = %s
-            GROUP BY DATE(created_at)
+            WHERE id IN (
+                SELECT MAX(id) 
+                FROM user_stress 
+                WHERE user_id = %s 
+                GROUP BY DATE(created_at)
+            )
         ) st ON dates.tanggal = st.tanggal
 
         ORDER BY dates.tanggal ASC
@@ -1581,6 +1680,8 @@ def get_history(user_id):
             user_id,
             user_id
         ))
+
+        print("USER ID :", user_id)
 
         rows = cur.fetchall()
 
@@ -1609,9 +1710,11 @@ def get_history(user_id):
         for row in rows:
 
             aktivitas_raw = row[1]
-            diet_raw = row[3]
-            tidur_raw = row[5]
-            stres_raw = row[7]
+            frekuensi_mingguan = row[3]
+
+            diet_raw = row[4]
+            tidur_raw = row[6]
+            stres_raw = row[8]
 
             # ================= FORMAT TANGGAL =================
 
@@ -1647,6 +1750,11 @@ def get_history(user_id):
                     "full_label": full_label,
 
                     "score": 0,
+                    
+                    # ================= TAMBAH =================
+
+                    "frekuensi_mingguan":
+                        frekuensi_mingguan if frekuensi_mingguan else 0,
 
                     "status": "Belum Ada Data",
 
@@ -1671,17 +1779,18 @@ def get_history(user_id):
 
             # ================= NORMALISASI =================
 
-            aktivitas = (aktivitas_raw / 15) * 10
+            aktivitas = (aktivitas_raw / 12) * 10
             diet = (diet_raw / 21) * 10
-            tidur = (tidur_raw / 18) * 10
 
-            # stress dibalik
-            # stress dibalik
+            if tidur_raw == 0:
+                tidur = 0
+            else:
+                tidur = 10 - ((tidur_raw / 21) * 10)
 
             if stres_raw == 0:
                 stres = 0
             else:
-                stres = ((40 - stres_raw) / 40) * 10
+                stres = 10 - ((stres_raw / 40) * 10)
 
             aktivitas = max(0, min(10, aktivitas))
             diet = max(0, min(10, diet))
@@ -1689,79 +1798,75 @@ def get_history(user_id):
             stres = max(0, min(10, stres))
 
             total = round(
-                (diet * 0.15) +
-                (aktivitas * 0.20) +
-                (tidur * 0.30) +
-                (stres * 0.35),
+                (diet * 0.25) +
+                (aktivitas * 0.143) +
+                (tidur * 0.25) +
+                (stres * 0.357),
                 1
             )
+            status, conclusion = get_health_status(total)
 
-            # ================= STATUS =================
+            # ================= DEBUG =================
 
-            if total >= 8:
+            print("======================")
+            print("Tanggal :", row[0])
+            print("Aktivitas :", aktivitas_raw)
+            print("Diet :", diet_raw)
+            print("Tidur :", tidur_raw)
+            print("Stress :", stres_raw)
+            print("Frekuensi :", frekuensi_mingguan)
+            print("Total :", total)
+            print("Status :", status)
 
-                status = "Sangat Seimbang"
-
-                conclusion = (
-                    "Gaya hidup kamu sangat seimbang dan konsisten ✨"
-                )
-
-            elif total >= 6:
-
-                status = "Seimbang"
-
-                conclusion = (
-                    "Gaya hidup kamu sudah cukup baik 🌱"
-                )
-
-            elif total >= 4:
-
-                status = "Kurang Seimbang"
-
-                conclusion = (
-                    "Masih ada beberapa aspek yang perlu diperbaiki ⚠️"
-                )
-
-            else:
-
-                status = "Tidak Seimbang"
-
-                conclusion = (
-                    "Perlu perhatian lebih pada gaya hidup sehari-hari 😴"
-                )
-
-            # ================= REKOMENDASI =================
-
+            # ================= REKOMENDASI BERDASARKAN PERSENTASE =================
             rekomendasi = []
 
-            if aktivitas < 6:
-                rekomendasi.append(
-                    "tingkatkan aktivitas fisik"
-                )
+            # Aktivitas
+            aktivitas_persen = aktivitas_raw / 12
+            if aktivitas_persen < 0.75:
+                rekomendasi.append({
+                    "nilai": aktivitas_persen,
+                    "pesan":
+                    "Tingkatkan aktivitas fisik minimal 60 menit setiap hari sesuai anjuran WHO."
+                })
 
-            if diet < 6:
-                rekomendasi.append(
-                    "perbaiki pola makan"
-                )
+            # Diet
+            diet_persen = diet_raw / 21
+            if diet_persen < 0.75:
+                rekomendasi.append({
+                    "nilai": diet_persen,
+                    "pesan":
+                    "Perbaiki pola makan dengan makan teratur, memperbanyak buah dan sayur, serta mengurangi makanan cepat saji."
+                })
 
-            if tidur < 6:
-                rekomendasi.append(
-                    "perbaiki pola tidur"
-                )
+            # Tidur
+            tidur_baik = 21 - tidur_raw
+            tidur_persen = tidur_baik / 14
+            if tidur_persen < 0.75:
+                rekomendasi.append({
+                    "nilai": tidur_persen,
+                    "pesan":
+                    "Perbaiki kualitas tidur dengan tidur 7–9 jam dan menjaga jadwal tidur."
+                })
 
-            if stres < 6:
-                rekomendasi.append(
-                    "kelola stres lebih baik"
-                )
+            # Stress
+            stress_baik = 40 - stres_raw
+            stress_persen = stress_baik / 40
+            if stress_persen < 0.75:
+                rekomendasi.append({
+                    "nilai": stress_persen,
+                    "pesan":
+                    "Kelola stres dengan relaksasi, aktivitas positif, dan istirahat cukup."
+                })
 
-            if len(rekomendasi) == 0:
-                recommendation_text = (
-                    "Pertahankan kebiasaan sehatmu dan tetap konsisten 💚"
+            if rekomendasi:
+                rekomendasi.sort(
+                    key=lambda x:x["nilai"]
                 )
+                recommendation_text = rekomendasi[0]["pesan"]
             else:
                 recommendation_text = (
-                    "Fokus perbaikan minggu ini: "
-                    + ", ".join(rekomendasi)
+                    "Semua aspek gaya hidup sudah baik. Pertahankan kebiasaan sehatmu."
                 )
 
              # ================= FORMAT TANGGAL =================
@@ -1785,31 +1890,33 @@ def get_history(user_id):
             # ================= JSON =================
 
             result.append({
-
                 "tanggal": str(row[0]),
-
                 "full_label": full_label,
-
                 "score": total,
-
                 "status": status,
 
-                "aktivitas": round(aktivitas, 1),
-                "diet": round(diet, 1),
-                "tidur": round(tidur, 1),
-                "stres": round(stres, 1),
+                "aktivitas": aktivitas_raw,
+                "diet": diet_raw,
+                "tidur": tidur_raw,
+                "stres": stres_raw,
+
+                "aktivitas_normal": round(aktivitas,1),
+                "diet_normal": round(diet,1),
+                "tidur_normal": round(tidur,1),
+                "stres_normal": round(stres,1),
+
+                # ================= TAMBAH =================
+                "frekuensi_mingguan": frekuensi_mingguan if frekuensi_mingguan else 0,
 
                 "aktivitas_kategori": row[2],
-                "diet_kategori": row[4],
-                "tidur_kategori": row[6],
-                "stres_kategori": row[8],
-
+                "diet_kategori": row[5],
+                "tidur_kategori": row[7],
+                "stres_kategori": row[9],
                 "conclusion": conclusion,
-
                 "recommendation": recommendation_text
-
             })
 
+        print(result)
         return jsonify({
             "success": True,
             "data": result
@@ -1823,6 +1930,107 @@ def get_history(user_id):
             "message": str(e)
         }), 500
     
+@app.route('/api/today-report/<int:user_id>', methods=['GET'])
+def today_report(user_id):
+
+    try:
+        cur = mysql.connection.cursor()
+
+        query = """
+        SELECT
+
+        COALESCE(
+        (SELECT skor_total
+        FROM user_activities
+        WHERE user_id=%s
+        AND DATE(created_at)=CURDATE()
+        ORDER BY id DESC LIMIT 1),0),
+
+        COALESCE(
+        (SELECT skor_total
+        FROM user_dietary
+        WHERE user_id=%s
+        AND DATE(created_at)=CURDATE()
+        ORDER BY id DESC LIMIT 1),0),
+
+        COALESCE(
+        (SELECT skor_total
+        FROM user_sleeps
+        WHERE user_id=%s
+        AND DATE(created_at)=CURDATE()
+        ORDER BY id DESC LIMIT 1),0),
+
+        COALESCE(
+        (SELECT skor_total
+        FROM user_stress
+        WHERE user_id=%s
+        AND DATE(created_at)=CURDATE()
+        ORDER BY id DESC LIMIT 1),0)
+
+        """
+
+        cur.execute(query,(
+            user_id,
+            user_id,
+            user_id,
+            user_id
+        ))
+
+        data = cur.fetchone()
+
+        cur.close()
+
+        aktivitas = (data[0]/12)*10
+        diet = (data[1]/21)*10
+
+        tidur = 0
+        if data[2] > 0:
+            tidur = 10 - ((data[2]/21)*10)
+
+        stres = 0
+        if data[3] > 0:
+            stres = 10 - ((data[3]/40)*10)
+
+        aktivitas = max(0,min(10,aktivitas))
+        diet = max(0,min(10,diet))
+        tidur = max(0,min(10,tidur))
+        stres = max(0,min(10,stres))
+
+        score = round(
+            (diet*0.25)+
+            (aktivitas*0.143)+
+            (tidur*0.25)+
+            (stres*0.357),
+            1
+        )
+    
+        status, conclusion = get_health_status(score)
+
+        print("RAW")
+        print(data)
+        print("===== SAW BACKEND =====")
+        print("Aktivitas :", aktivitas)
+        print("Diet :", diet)
+        print("Tidur :", tidur)
+        print("Stress :", stres)
+        print("Total :", score)
+        print("Status :", status)
+        print("=======================")
+
+        return jsonify({
+            "success":True,
+            "score":score,
+            "status":status,
+            "conclusion":conclusion
+        })
+
+    except Exception as e:
+
+        return jsonify({
+            "success":False,
+            "message":str(e)
+        })
+      
 # ================= REKOMENDASI SARAN PSIKOLOG =================
 @app.route('/api/psikolog', methods=['GET'])
 def get_psikolog():
