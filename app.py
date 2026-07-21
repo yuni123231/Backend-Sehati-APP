@@ -245,7 +245,7 @@ def api_signup():
 
     cur.close()
 
-    verify_link = f"http://192.168.110.2:5000/api/verify-email/{token}"
+    verify_link = f"https://sehati.my.id/api/verify-email/{token}"
 
     try:
         print("Kirim email ke:", email)
